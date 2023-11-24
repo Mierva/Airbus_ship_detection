@@ -1,3 +1,4 @@
+import keras.backend as K
 import pandas as pd
 import matplotlib.pyplot as plt
 from skimage.io import imread
@@ -10,14 +11,17 @@ import numpy as np
 from keras import layers, models
 import utils
 import json
+import utils
+from keras.optimizers.legacy import Adam
+import warnings; warnings.filterwarnings('ignore')
 
 
-class ModelInference():
+class ModelInference:
     IMG_SCALING = (3, 3)
     test_image_dir = os.path.join('airbus-ship-detection', 'test_v2')
     train_image_dir = os.path.join('airbus-ship-detection', 'train_v2')
     
-    def __init__(self):
+    def __init__(self):        
         self.fullres_model = None
 
     def load_fullres_model(self, seg_model_path="model_params/seg_model_weights.best.hdf5",
@@ -62,6 +66,7 @@ class ModelInference():
         fig, m_axs = plt.subplots(samples.shape[0], 4, figsize = (15, samples.shape[0]*4))
         [c_ax.axis('off') for c_ax in m_axs.flatten()]
 
+        fig.title('Prediction for images having 0-15 ships')
         for (ax1, ax2, ax3, ax4), c_img_name in zip(m_axs, samples.ImageId.values):
             first_seg, first_img = self.raw_prediction(c_img_name, c_img_name, self.train_image_dir)
             ax1.imshow(first_img)
@@ -75,10 +80,12 @@ class ModelInference():
             ground_truth = self.masks_as_color(masks.query('ImageId=="{}"'.format(c_img_name))['EncodedPixels'])
             ax4.imshow(ground_truth)
             ax4.set_title('Ground Truth')
+        
         # fig.show() # for some reason it closes immediately
         fig.savefig('test_predictions.jpg')
+        print('Plot predictions successfully saved to test_predictions.jpg')
 
-    def get_data(self):
+    def get_data(self, df):                   
         masks = pd.read_csv(r'airbus-ship-detection\train_ship_segmentations_v2.csv')
         masks['ships'] = masks['EncodedPixels'].map(lambda c_row: 1 if isinstance(c_row, str) else 0)
         unique_img_ids = masks.groupby('ImageId').agg({'ships': 'sum'}).reset_index()
@@ -88,20 +95,58 @@ class ModelInference():
         unique_img_ids['file_size_kb'] = unique_img_ids['ImageId'].map(lambda c_img_id: 
                                                                     os.stat(os.path.join(self.train_image_dir, 
                                                                                             c_img_id)).st_size/1024)
-        unique_img_ids = unique_img_ids[unique_img_ids['file_size_kb'] > 50]
-        unique_img_ids['file_size_kb'].hist()
+        unique_img_ids = unique_img_ids[unique_img_ids['file_size_kb'] > 50]     
+        overlap_mask = unique_img_ids.index.isin(df.index)
+        df = unique_img_ids[overlap_mask].copy()
         masks = masks.drop(['ships'], axis=1)
-            
-        valid_ids = pd.read_csv('valid_ids.csv')
+        df = pd.merge(masks, df)
         
-        return masks, pd.merge(masks, valid_ids)
+        return masks, df
+    
+    def dice_coef(self, y_true, y_pred, smooth=1):
+        intersection = K.sum(y_true * y_pred, axis=[1,2,3])
+        union = K.sum(y_true, axis=[1,2,3]) + K.sum(y_pred, axis=[1,2,3])
+        return K.mean( (2. * intersection + smooth) / (union + smooth), axis=0)
+
+    def dice_loss(self, in_gt, in_pred):
+        return 1 - self.dice_coef(in_gt, in_pred)     
+    
+    def evaluate_model(self, test_size=100):
+        seg_model = Unet().build_unet((256, 256, 3))    
+        seg_model.load_weights('model_params\seg_model_weights.best.hdf5')
+        seg_model.compile(optimizer=Adam(1e-4, decay=1e-6), 
+                            loss=self.dice_loss, 
+                            metrics=[self.dice_coef, 'binary_accuracy'])
         
-def main():
-    inference = ModelInference()
-    masks, valid_df = inference.get_data()
-    fullres_model = inference.load_fullres_model()
-    inference.fullres_model = fullres_model
-    inference.show_preds(valid_df, masks, fullres_model)
+        valid_ids = pd.read_csv('valid_ids.csv', index_col=0)
+        dataset = pd.read_csv(r'airbus-ship-detection\train_ship_segmentations_v2.csv')
+
+        overlap_mask = dataset.index.isin(valid_ids.index)
+        test_df = dataset[overlap_mask].copy()
+        
+        X_test, y_test = next(utils.make_image_gen(test_df, test_size, self.IMG_SCALING, r'airbus-ship-detection\train_v2'))
+        
+        # Evaluate the model on the test data using `evaluate`
+        print("Evaluate on test data")
+        results = seg_model.evaluate(X_test, y_test, batch_size=5)
+        print(f"dice loss: {results[0]:.4f} \ndice coeff: {results[1]:.4f} \nbalanced accuracy: {results[2]:.4f}")
+        
+        
+def main():        
+    inference = ModelInference()     
+    valid_ids = pd.read_csv('valid_ids.csv', index_col=0)
+    dataset = pd.read_csv(r'airbus-ship-detection\train_ship_segmentations_v2.csv')
+    overlap_mask = dataset.index.isin(valid_ids.index)
+    test_df = dataset[overlap_mask].copy()
+    
+    # Shows dice coefficient for test data
+    inference.evaluate_model(1000)
+    
+    # Shows image representation of predicitons
+    masks,test_df = inference.get_data(test_df)    
+    inference.fullres_model = inference.load_fullres_model()
+    inference.show_preds(test_df, masks)
+
 
 if __name__=='__main__':
     main()
