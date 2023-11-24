@@ -16,7 +16,7 @@ import keras.backend as K
 from keras.optimizers.legacy import Adam
 from keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 import json
-
+import warnings; warnings.filterwarnings('ignore')
 
 BATCH_SIZE = 48
 EDGE_CROP = 16
@@ -212,11 +212,11 @@ class Unet:
                 
         callbacks_list = self.create_callbacks()    
         loss_history = [self.model.fit_generator(aug_gen, 
-                                  steps_per_epoch=step_count, 
-                                  epochs=MAX_TRAIN_EPOCHS, 
-                                  validation_data=(valid_x, valid_y),
-                                  callbacks=callbacks_list,
-                                  workers=1)]   
+                                                 steps_per_epoch=step_count, 
+                                                 epochs=MAX_TRAIN_EPOCHS, 
+                                                 validation_data=(valid_x, valid_y),
+                                                 callbacks=callbacks_list,
+                                                 workers=1)]   
     
 if __name__ == '__main__':
     prep = Preprocessor()
