@@ -138,11 +138,9 @@ def main():
     dataset = pd.read_csv(r'airbus-ship-detection\train_ship_segmentations_v2.csv')
     overlap_mask = dataset.index.isin(valid_ids.index)
     test_df = dataset[overlap_mask].copy()
-    
-    # Shows dice coefficient for test data
+        
     inference.evaluate_model(1000)
     
-    # Shows image representation of predicitons
     masks,test_df = inference.get_data(test_df)    
     inference.fullres_model = inference.load_fullres_model()
     inference.show_preds(test_df, masks)
