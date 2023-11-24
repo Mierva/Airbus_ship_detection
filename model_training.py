@@ -8,7 +8,6 @@ import utils
 from sklearn.model_selection import train_test_split
 from skimage.util import montage
 from skimage.segmentation import mark_boundaries
-from unet import Unet
 import tensorflow as tf
 from keras.preprocessing.image import ImageDataGenerator
 from keras import models, layers
@@ -149,7 +148,7 @@ class Unet:
     def build_unet(self, input_shape):
         inputs = layers.Input(input_shape)
         w = 3
-        # TODO: change repetetive inputs to p2,p3...
+        # TODO: change repetetive inputs to p1,p2...
         s1, p1 = self.encoder_block(inputs, 4, w)        
         s2, p2 = self.encoder_block(inputs, 4, w)       
         s3, p3 = self.encoder_block(inputs, 8, w)        

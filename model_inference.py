@@ -11,17 +11,18 @@ import numpy as np
 from keras import layers, models
 import utils
 import json
-import utils
 from keras.optimizers.legacy import Adam
 import warnings; warnings.filterwarnings('ignore')
 
 
-class ModelInference:
-    IMG_SCALING = (3, 3)
-    test_image_dir = os.path.join('airbus-ship-detection', 'test_v2')
-    train_image_dir = os.path.join('airbus-ship-detection', 'train_v2')
-    
-    def __init__(self):        
+class ModelInference:           
+    def __init__(self, train_dir=os.path.join('airbus-ship-detection', 'train_v2'), 
+                 test_dir=os.path.join('airbus-ship-detection', 'test_v2'), 
+                 airbus_train_seg=r'airbus-ship-detection\train_ship_segmentations_v2.csv'):          
+        self.IMG_SCALING = (3, 3)
+        self.airbus_train_seg = airbus_train_seg
+        self.train_image_dir = train_dir
+        self.test_image_dir = test_dir
         self.fullres_model = None
 
     def load_fullres_model(self, seg_model_path="model_params/seg_model_weights.best.hdf5",
@@ -48,8 +49,8 @@ class ModelInference:
                 all_masks[:,:] += scale(i) * utils.rle_decode(mask)
         return all_masks
 
-    def raw_prediction(self, img, c_img_name, path=test_image_dir):
-        c_img = imread(os.path.join(path, c_img_name))
+    def raw_prediction(self, c_img_name):
+        c_img = imread(os.path.join(self.train_image_dir, c_img_name))
         c_img = np.expand_dims(c_img, 0)/255.0
         cur_seg = self.fullres_model.predict(c_img)[0]
         return cur_seg, c_img[0]
@@ -57,8 +58,8 @@ class ModelInference:
     def smooth(self, cur_seg):
         return binary_opening(cur_seg>0.99, np.expand_dims(disk(2), -1))
 
-    def predict(self, img, path=test_image_dir):
-        cur_seg, c_img = self.raw_prediction(img, path=path)
+    def predict(self, img):
+        cur_seg, c_img = self.raw_prediction(img)
         return self.smooth(cur_seg), c_img
     
     def show_preds(self, valid_df, masks):
@@ -66,9 +67,9 @@ class ModelInference:
         fig, m_axs = plt.subplots(samples.shape[0], 4, figsize = (15, samples.shape[0]*4))
         [c_ax.axis('off') for c_ax in m_axs.flatten()]
 
-        fig.title('Prediction for images having 0-15 ships')
+        fig.suptitle('Prediction for images having 0-15 ships')
         for (ax1, ax2, ax3, ax4), c_img_name in zip(m_axs, samples.ImageId.values):
-            first_seg, first_img = self.raw_prediction(c_img_name, c_img_name, self.train_image_dir)
+            first_seg, first_img = self.raw_prediction(c_img_name)
             ax1.imshow(first_img)
             ax1.set_title('Image: ' + c_img_name)
             # ax2.imshow(first_seg[:, :, 0], cmap=colormaps('jet'))
@@ -86,7 +87,7 @@ class ModelInference:
         print('Plot predictions successfully saved to test_predictions.jpg')
 
     def get_data(self, df):                   
-        masks = pd.read_csv(r'airbus-ship-detection\train_ship_segmentations_v2.csv')
+        masks = pd.read_csv(self.airbus_train_seg)
         masks['ships'] = masks['EncodedPixels'].map(lambda c_row: 1 if isinstance(c_row, str) else 0)
         unique_img_ids = masks.groupby('ImageId').agg({'ships': 'sum'}).reset_index()
         unique_img_ids['has_ship'] = unique_img_ids['ships'].map(lambda x: 1.0 if x>0 else 0.0)
@@ -119,27 +120,26 @@ class ModelInference:
                             metrics=[self.dice_coef, 'binary_accuracy'])
         
         valid_ids = pd.read_csv('valid_ids.csv', index_col=0)
-        dataset = pd.read_csv(r'airbus-ship-detection\train_ship_segmentations_v2.csv')
+        dataset = pd.read_csv(self.airbus_train_seg)
 
         overlap_mask = dataset.index.isin(valid_ids.index)
         test_df = dataset[overlap_mask].copy()
         
-        X_test, y_test = next(utils.make_image_gen(test_df, test_size, self.IMG_SCALING, r'airbus-ship-detection\train_v2'))
-        
-        # Evaluate the model on the test data using `evaluate`
-        print("Evaluate on test data")
+        X_test, y_test = next(utils.make_image_gen(test_df, test_size, self.IMG_SCALING, self.train_image_dir))
+                        
         results = seg_model.evaluate(X_test, y_test, batch_size=5)
         print(f"dice loss: {results[0]:.4f} \ndice coeff: {results[1]:.4f} \nbalanced accuracy: {results[2]:.4f}")
         
         
-def main():        
-    inference = ModelInference()     
+def main():   
+    airbus_train_seg = r'airbus-ship-detection\train_ship_segmentations_v2.csv'  
+    inference = ModelInference(airbus_train_seg=airbus_train_seg)     
     valid_ids = pd.read_csv('valid_ids.csv', index_col=0)
-    dataset = pd.read_csv(r'airbus-ship-detection\train_ship_segmentations_v2.csv')
+    dataset = pd.read_csv(airbus_train_seg)
     overlap_mask = dataset.index.isin(valid_ids.index)
     test_df = dataset[overlap_mask].copy()
         
-    inference.evaluate_model(1000)
+    inference.evaluate_model(test_size=1000)
     
     masks,test_df = inference.get_data(test_df)    
     inference.fullres_model = inference.load_fullres_model()
