@@ -20,9 +20,10 @@ class ModelInference():
     def __init__(self):
         self.fullres_model = None
 
-    def load_fullres_model(self):
+    def load_fullres_model(self, seg_model_path="model_params/seg_model_weights.best.hdf5",
+                           fullres_path='model_params/fullres_model.h5'):
         seg_model = Unet().build_unet((256, 256, 3))    
-        seg_model.load_weights(r"model_params/seg_model_weights.best.hdf5")
+        seg_model.load_weights(seg_model_path)
         if self.IMG_SCALING is not None:
             fullres_model = models.Sequential()
             fullres_model.add(layers.AvgPool2D(self.IMG_SCALING, input_shape = (None, None, 3)))
@@ -30,7 +31,7 @@ class ModelInference():
             fullres_model.add(layers.UpSampling2D(self.IMG_SCALING))
         else:
             fullres_model = seg_model
-        fullres_model.load_weights(r'model_params/fullres_model.h5')
+        fullres_model.load_weights(fullres_path)
         
         return fullres_model
 
@@ -56,7 +57,7 @@ class ModelInference():
         cur_seg, c_img = self.raw_prediction(img, path=path)
         return self.smooth(cur_seg), c_img
     
-    def show_preds(self, valid_df, masks, fullres_model):
+    def show_preds(self, valid_df, masks):
         samples = valid_df.groupby('ships').apply(lambda x: x.sample(1))
         fig, m_axs = plt.subplots(samples.shape[0], 4, figsize = (15, samples.shape[0]*4))
         [c_ax.axis('off') for c_ax in m_axs.flatten()]
@@ -74,6 +75,7 @@ class ModelInference():
             ground_truth = self.masks_as_color(masks.query('ImageId=="{}"'.format(c_img_name))['EncodedPixels'])
             ax4.imshow(ground_truth)
             ax4.set_title('Ground Truth')
+        # fig.show() # for some reason it closes immediately
         fig.savefig('test_predictions.jpg')
 
     def get_data(self):
